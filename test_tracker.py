@@ -1,6 +1,5 @@
 import os
 import io
-import pickle
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
@@ -103,17 +102,24 @@ if st.button("Export Logs to Excel"):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# Import logs: Upload CSV files for trade log and dividend log.
+# Import logs: Upload Excel files for trade and dividend logs.
 st.subheader("Import Logs")
 trade_file = st.file_uploader("Upload Trade Log Excel", type=["xlsx"], key="trade_import")
 if trade_file is not None:
     try:
         imported_trade_log = pd.read_excel(trade_file, sheet_name="Trade Log", parse_dates=['Date'])
+        # If 'Total Cost' is missing, calculate it.
+        if 'Total Cost' not in imported_trade_log.columns:
+            imported_trade_log['Total Cost'] = imported_trade_log.apply(
+                lambda row: (row['Quantity'] * row['Price per Share'] + row['Expenses'])
+                            if row['Action'].lower() == 'buy'
+                            else -(row['Quantity'] * row['Price per Share'] - row['Expenses']),
+                axis=1
+            )
         st.session_state.trade_log = imported_trade_log
         st.success("Trade log imported successfully!")
     except Exception as e:
         st.error(f"Error importing trade log: {e}")
-
 
 dividend_file = st.file_uploader("Upload Dividend Log Excel", type=["xlsx"], key="dividend_import")
 if dividend_file is not None:
@@ -123,7 +129,6 @@ if dividend_file is not None:
         st.success("Dividend log imported successfully!")
     except Exception as e:
         st.error(f"Error importing dividend log: {e}")
-
 
 # ===================== DISPLAY LOGS =====================
 st.subheader("Trade Log")
@@ -367,7 +372,7 @@ filtered_data = df[df.index >= pd.to_datetime("2023-01-01").date()]
 st.write("### Time Series Data (from 2023-01-01)")
 st.dataframe(filtered_data)
 
-# Add option to export the final time series data
+# Add an export button to download the time series data as Excel
 to_write = io.BytesIO()
 filtered_data.to_excel(to_write, index=True, sheet_name="Portfolio Data")
 to_write.seek(0)
