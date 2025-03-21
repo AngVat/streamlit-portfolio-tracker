@@ -609,4 +609,3 @@ st.pyplot(plt.gcf())
 plt.clf()
 
 st.write("### End of Analysis")
-st.write("NEW SECTION")
