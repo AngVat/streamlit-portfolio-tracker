@@ -158,6 +158,7 @@ price_data = pd.DataFrame()
 
 st.write("### Downloading Historical Price Data...")
 for ticker in tickers:
+    # -------------------- CACHING FUNCTION --------------------
     def download_data_with_retry(ticker, start_date, end_date, cache_duration_hours=cache_dur_hours, retries=3, delay=5):
         cache_dir = "cache"
         if not os.path.exists(cache_dir):
@@ -193,6 +194,7 @@ for ticker in tickers:
                 st.write(f"Attempt {i + 1}: Failed to download data for {ticker}: {e}")
                 time.sleep(delay)
         return None
+    # -----------------------------------------------------------
     data = download_data_with_retry(ticker, start_date, end_date)
     if data is not None:
         price_data[ticker] = data
@@ -405,7 +407,12 @@ filtered_data['Portfolio Value'] = (filtered_data['Invested Capital'] +
                                     filtered_data['Realized Profit'] +
                                     filtered_data['Dividends'] +
                                     filtered_data['Unrealized Profit'])
-# (Text metrics for Portfolio CAGR, VaR, CVaR have been removed.)
+
+# Compute Daily Return if Portfolio Value exists
+if not filtered_data.empty and 'Portfolio Value' in filtered_data.columns:
+    filtered_data['Daily Return'] = filtered_data['Portfolio Value'].pct_change().fillna(0)
+else:
+    filtered_data['Daily Return'] = 0
 
 # ===================== BENCHMARK RISK METRICS =====================
 BENCHMARK_TICKER = "^GSPC"
@@ -419,30 +426,34 @@ filtered_data['Benchmark'] = df_benchmark
 filtered_data['Benchmark Return'] = filtered_data['Benchmark'].pct_change().fillna(0)
 risk_free_rate_annual = 0.02
 risk_free_rate_daily = risk_free_rate_annual / 252
-portfolio_volatility = filtered_data['Daily Return'].std() * np.sqrt(252)
-cov_matrix = np.cov(filtered_data['Daily Return'] - risk_free_rate_daily,
-                    filtered_data['Benchmark Return'] - risk_free_rate_daily)
-cov_port_bench = cov_matrix[0, 1]
-var_bench = np.var(filtered_data['Benchmark Return'] - risk_free_rate_daily)
-portfolio_beta = cov_port_bench / var_bench if var_bench != 0 else 0
-portfolio_return_daily = filtered_data['Daily Return'].mean()
-benchmark_return_daily = filtered_data['Benchmark Return'].mean()
-sharpe_ratio = ((portfolio_return_daily - risk_free_rate_daily) / filtered_data['Daily Return'].std()) * np.sqrt(252)
-portfolio_return_annual = (1 + portfolio_return_daily) ** 252 - 1
-benchmark_return_annual = (1 + benchmark_return_daily) ** 252 - 1
-alpha = (portfolio_return_annual - risk_free_rate_annual) - portfolio_beta * (benchmark_return_annual - risk_free_rate_annual)
+
+# Only compute these metrics if Daily Return exists and is non-empty
+if not filtered_data.empty:
+    portfolio_volatility = filtered_data['Daily Return'].std() * np.sqrt(252)
+    cov_matrix = np.cov(filtered_data['Daily Return'] - risk_free_rate_daily,
+                        filtered_data['Benchmark Return'] - risk_free_rate_daily)
+    cov_port_bench = cov_matrix[0, 1]
+    var_bench = np.var(filtered_data['Benchmark Return'] - risk_free_rate_daily)
+    portfolio_beta = cov_port_bench / var_bench if var_bench != 0 else 0
+    portfolio_return_daily = filtered_data['Daily Return'].mean()
+    benchmark_return_daily = filtered_data['Benchmark Return'].mean()
+    sharpe_ratio = ((portfolio_return_daily - risk_free_rate_daily) / filtered_data['Daily Return'].std()) * np.sqrt(252)
+    portfolio_return_annual = (1 + portfolio_return_daily) ** 252 - 1
+    benchmark_return_annual = (1 + benchmark_return_daily) ** 252 - 1
+    alpha = (portfolio_return_annual - risk_free_rate_annual) - portfolio_beta * (benchmark_return_annual - risk_free_rate_annual)
+else:
+    portfolio_volatility = portfolio_beta = sharpe_ratio = alpha = 0
 
 # ===================== RISK METRICS PLOT =====================
-# Instead of printing text, plot key risk metrics.
 risk_metrics = {
     "Volatility": portfolio_volatility,
     "Beta": portfolio_beta,
     "Sharpe Ratio": sharpe_ratio,
     "Alpha": alpha
 }
-# Create a bar chart for risk metrics
 fig, ax = plt.subplots(figsize=(8, 5))
-bars = ax.bar(list(risk_metrics.keys()), list(risk_metrics.values()), color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
+bars = ax.bar(list(risk_metrics.keys()), list(risk_metrics.values()),
+              color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
 ax.set_title("Risk Metrics")
 ax.set_ylabel("Value")
 for bar in bars:
@@ -451,6 +462,7 @@ for bar in bars:
                 xytext=(0, 3), textcoords="offset points", ha='center', va='bottom')
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 # ===================== VISUALIZATIONS =====================
 # Stacked bar chart for portfolio components
@@ -482,6 +494,7 @@ plt.xticks(rotation=45, ha='right')
 plt.legend(title='Components')
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 # Realized profit & dividend per stock
 all_individual_pnls = calculate_individual_pnl()
@@ -506,6 +519,7 @@ ax.set_title('Total Realized Profit & Dividends per Stock')
 ax.legend()
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 # Combined realized, dividends, and unrealized profit per stock
 realized_pnl_by_stock = all_individual_pnls.groupby('Stock')['PnL'].sum().round(2)
@@ -539,6 +553,7 @@ ax.set_title('Realized, Dividends & Unrealized Profit per Stock')
 ax.legend()
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 # Yearly totals for realized profit and dividends
 all_individual_pnls = calculate_individual_pnl().copy()
@@ -568,6 +583,7 @@ ax.set_title('Realized Profit & Dividends per Year')
 ax.legend()
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 # Sector allocation pie chart (using current invested capital)
 try:
@@ -583,13 +599,11 @@ try:
     ax.set_title("Portfolio Allocation by Sector")
     plt.tight_layout()
     st.pyplot(plt.gcf())
+    plt.clf()
 except Exception as e:
     st.write("Sector allocation could not be computed:", e)
 
 # ===================== ADDITIONAL RISK METRICS VISUALIZATIONS =====================
-# Instead of textual outputs, we already display risk metrics in a plot above.
-# Additional plots for portfolio value vs. benchmark, drawdown, distribution, etc. follow.
-
 fig, ax = plt.subplots(figsize=(12,6))
 ax.plot(filtered_data.index, filtered_data['Portfolio Value'], label='Portfolio Value', linewidth=2)
 ax.plot(filtered_data.index, filtered_data['Benchmark'], label='Benchmark', linewidth=2, linestyle='--')
@@ -600,6 +614,7 @@ ax.legend()
 ax.grid(True)
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 running_max = filtered_data['Portfolio Value'].cummax()
 drawdown = filtered_data['Portfolio Value'] / running_max - 1
@@ -612,6 +627,7 @@ ax.legend()
 ax.grid(True)
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 fig, ax = plt.subplots(figsize=(12,6))
 ax.hist(filtered_data['Daily Return'], bins=50, edgecolor='black', alpha=0.7)
@@ -621,6 +637,7 @@ ax.set_title('Distribution of Daily Returns')
 ax.grid(True)
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 fig, ax = plt.subplots(figsize=(12,6))
 ax.scatter(filtered_data['Benchmark Return'], filtered_data['Daily Return'], alpha=0.6, color='purple')
@@ -630,6 +647,7 @@ ax.set_title('Portfolio vs. Benchmark Daily Returns')
 ax.grid(True)
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 log_portfolio_returns = np.log(filtered_data['Portfolio Value'] / filtered_data['Portfolio Value'].iloc[0])
 log_benchmark_returns = np.log(filtered_data['Benchmark'] / filtered_data['Benchmark'].iloc[0])
@@ -645,6 +663,7 @@ ax.legend()
 ax.grid(True)
 plt.tight_layout()
 st.pyplot(plt.gcf())
+plt.clf()
 
 st.write("### End of Analysis")
 st.write("NEW SECTION")
