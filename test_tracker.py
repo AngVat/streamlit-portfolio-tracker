@@ -1,5 +1,5 @@
 import os
-import pickle
+import io
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
@@ -19,13 +19,11 @@ st.sidebar.title("Portfolio Analysis Configuration")
 separate_profits = st.sidebar.checkbox("Separate Realized & Unrealized Profits", value=True)
 include_capital = st.sidebar.checkbox("Include Invested Capital", value=False)
 currency_convert = st.sidebar.checkbox("Convert USD to EUR", value=True)
-# New Time Series Frequency option replaces the old Days Back input
 time_series_frequency = st.sidebar.selectbox(
     "Time Series Frequency",
     options=["Daily", "Weekly", "Monthly", "Yearly"],
     index=0
 )
-cache_dur_hours = st.sidebar.number_input("Cache Duration (hours)", min_value=1, max_value=24, value=2, step=1)
 analysis_region = st.sidebar.selectbox("Analysis Region", options=["All", "US", "Greek"], index=0)
 
 st.sidebar.markdown("---")
@@ -155,43 +153,24 @@ failed_tickers = []
 price_data = pd.DataFrame()
 
 st.write("### Downloading Historical Price Data...")
-for ticker in tickers:
-    def download_data_with_retry(ticker, start_date, end_date, cache_duration_hours=cache_dur_hours, retries=3, delay=5):
-        cache_dir = "cache"
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-        cache_file = os.path.join(cache_dir, f"{ticker}_{start_date}_{end_date}.pkl")
-        if os.path.exists(cache_file):
-            file_mod_time = os.path.getmtime(cache_file)
-            file_age_hours = (time.time() - file_mod_time) / 3600.0
-            if file_age_hours < cache_duration_hours:
-                try:
-                    with open(cache_file, "rb") as f:
-                        data = pickle.load(f)
-                    if not data.empty:
-                        st.write(f"Using cached data for {ticker} (age: {file_age_hours:.2f} hours)")
-                        return data
-                except Exception as e:
-                    st.write(f"Cache load error for {ticker}: {e}")
+def download_data(ticker, start_date, end_date, retries=3, delay=5):
+    for i in range(retries):
+        try:
+            st.write(f"Downloading data for {ticker}...")
+            data = yf.download(ticker, start=start_date, end=end_date)['Close']
+            if data.empty:
+                st.write(f"No data found for {ticker}")
+                return None
             else:
-                st.write(f"Cache for {ticker} is old (age: {file_age_hours:.2f} hours). Downloading fresh data...")
-        for i in range(retries):
-            try:
-                st.write(f"Downloading data for {ticker}...")
-                data = yf.download(ticker, start=start_date, end=end_date)['Close']
-                if data.empty:
-                    st.write(f"No data found for {ticker}")
-                    return None
-                else:
-                    with open(cache_file, "wb") as f:
-                        pickle.dump(data, f)
-                    st.write(f"Saved new data to cache for {ticker}")
-                    return data
-            except Exception as e:
-                st.write(f"Attempt {i + 1}: Failed to download data for {ticker}: {e}")
-                time.sleep(delay)
-        return None
-    data = download_data_with_retry(ticker, start_date, end_date)
+                st.write(f"Downloaded data for {ticker}")
+                return data
+        except Exception as e:
+            st.write(f"Attempt {i+1}: Failed to download data for {ticker}: {e}")
+            time.sleep(delay)
+    return None
+
+for ticker in tickers:
+    data = download_data(ticker, start_date, end_date)
     if data is not None:
         price_data[ticker] = data
         successful_tickers.append(ticker)
@@ -372,6 +351,17 @@ df.set_index('Date', inplace=True)
 filtered_data = df[df.index >= pd.to_datetime("2023-01-01").date()]
 st.write("### Time Series Data (from 2023-01-01)")
 st.dataframe(filtered_data)
+
+# Add an export button to download the dataframe as Excel
+towrite = io.BytesIO()
+filtered_data.to_excel(towrite, index=True, sheet_name="Portfolio Data")
+towrite.seek(0)
+st.download_button(
+    label="Download Data as Excel",
+    data=towrite,
+    file_name="portfolio_data.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
 filtered_data['Portfolio Value'] = (filtered_data['Invested Capital'] +
                                     filtered_data['Realized Profit'] +
