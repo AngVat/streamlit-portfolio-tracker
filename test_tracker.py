@@ -88,7 +88,7 @@ def log_dividend(date, stock, dividend_received):
 # ===================== EXPORT / IMPORT LOGS =====================
 st.header("Export / Import Logs")
 
-# Export logs: Combine trade and dividend logs into an Excel file with two sheets.
+# Export logs to Excel
 if st.button("Export Logs to Excel"):
     towrite = io.BytesIO()
     with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
@@ -102,18 +102,18 @@ if st.button("Export Logs to Excel"):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# Import logs: Upload Excel files for trade and dividend logs.
+# Import logs from Excel
 st.subheader("Import Logs")
 trade_file = st.file_uploader("Upload Trade Log Excel", type=["xlsx"], key="trade_import")
 if trade_file is not None:
     try:
         imported_trade_log = pd.read_excel(trade_file, sheet_name="Trade Log", parse_dates=['Date'])
-        # If 'Total Cost' is missing, calculate it.
+        # If Total Cost is missing, compute it.
         if 'Total Cost' not in imported_trade_log.columns:
             imported_trade_log['Total Cost'] = imported_trade_log.apply(
                 lambda row: (row['Quantity'] * row['Price per Share'] + row['Expenses'])
-                            if row['Action'].lower() == 'buy'
-                            else -(row['Quantity'] * row['Price per Share'] - row['Expenses']),
+                if row['Action'].lower() == 'buy'
+                else -(row['Quantity'] * row['Price per Share'] - row['Expenses']),
                 axis=1
             )
         st.session_state.trade_log = imported_trade_log
@@ -372,7 +372,7 @@ filtered_data = df[df.index >= pd.to_datetime("2023-01-01").date()]
 st.write("### Time Series Data (from 2023-01-01)")
 st.dataframe(filtered_data)
 
-# Add an export button to download the time series data as Excel
+# Export time series data as Excel
 to_write = io.BytesIO()
 filtered_data.to_excel(to_write, index=True, sheet_name="Portfolio Data")
 to_write.seek(0)
