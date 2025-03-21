@@ -20,7 +20,8 @@ st.sidebar.title("Portfolio Analysis Configuration")
 separate_profits = st.sidebar.checkbox("Separate Realized & Unrealized Profits", value=True)
 include_capital = st.sidebar.checkbox("Include Invested Capital", value=False)
 currency_convert = st.sidebar.checkbox("Convert USD to EUR", value=True)
-frequency = st.sidebar.selectbox("Time Series Frequency", options=["Daily", "Weekly", "Monthly", "Yearly"], index=0)
+frequency = st.sidebar.selectbox("Time Series Frequency", 
+                                 options=["Daily", "Weekly", "Monthly", "Yearly"], index=0)
 cache_dur_hours = st.sidebar.number_input("Cache Duration (hours)", min_value=1, max_value=24, value=2, step=1)
 analysis_region = st.sidebar.selectbox("Analysis Region", options=["All", "US", "Greek"], index=0)
 
@@ -372,9 +373,11 @@ filtered_data['Portfolio Value'] = (filtered_data['Invested Capital'] +
                                     filtered_data['Realized Profit'] +
                                     filtered_data['Dividends'] +
                                     filtered_data['Unrealized Profit'])
-
-# Resample time series based on the selected frequency
+# Compute Daily Return
 filtered_data.index = pd.to_datetime(filtered_data.index)
+filtered_data['Daily Return'] = filtered_data['Portfolio Value'].pct_change().fillna(0)
+
+# Resample the time series based on the selected frequency
 if frequency == "Weekly":
     freq_data = filtered_data.resample('W').last()
 elif frequency == "Monthly":
@@ -609,3 +612,4 @@ st.pyplot(plt.gcf())
 plt.clf()
 
 st.write("### End of Analysis")
+st.write("NEW SECTION")
