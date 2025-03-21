@@ -45,7 +45,7 @@ def is_us_stock(stock):
     return not stock.endswith('.AT')
 
 def maybe_convert(value, stock):
-    """Convert the value from USD to EUR if currency conversion is enabled and stock is US-based."""
+    """Convert value from USD to EUR if enabled and stock is US-based."""
     if currency_convert and is_us_stock(stock):
         return value * conversion_factor
     return value
@@ -116,7 +116,6 @@ st.dataframe(st.session_state.dividend_log.sort_values("Date"))
 # ===================== ANALYSIS REGION FILTERING =====================
 trade_log = st.session_state.trade_log.copy()
 dividend_log = st.session_state.dividend_log.copy()
-
 if analysis_region in ["US", "Greek"]:
     if analysis_region == "US":
         trade_log = trade_log[trade_log['Stock'].apply(is_us_stock)]
@@ -147,7 +146,7 @@ for d in last_days:
         date_list.append(d)
 date_list = sorted(date_list)
 
-# Use user-provided tickers directly (no mapping)
+# Use user-entered tickers directly
 stocks = trade_log['Stock'].unique()
 tickers = stocks
 start_date = earliest_date.strftime('%Y-%m-%d')
@@ -159,7 +158,6 @@ price_data = pd.DataFrame()
 
 st.write("### Downloading Historical Price Data...")
 for ticker in tickers:
-    # -------------------- CACHING FUNCTION --------------------
     def download_data_with_retry(ticker, start_date, end_date, cache_duration_hours=cache_dur_hours, retries=3, delay=5):
         cache_dir = "cache"
         if not os.path.exists(cache_dir):
@@ -195,7 +193,6 @@ for ticker in tickers:
                 st.write(f"Attempt {i + 1}: Failed to download data for {ticker}: {e}")
                 time.sleep(delay)
         return None
-    # -----------------------------------------------------------
     data = download_data_with_retry(ticker, start_date, end_date)
     if data is not None:
         price_data[ticker] = data
@@ -284,7 +281,6 @@ def calculate_current_invested_capital_per_stock():
                     cost_per_share = invested_capital / remaining_quantity
                     invested_capital -= cost_per_share * trade['Quantity']
                     remaining_quantity -= trade['Quantity']
-        # Use the stock ticker as provided
         if stock in successful_tickers:
             try:
                 current_price = yf.Ticker(stock).history(period="1d")['Close'].iloc[-1]
@@ -409,12 +405,7 @@ filtered_data['Portfolio Value'] = (filtered_data['Invested Capital'] +
                                     filtered_data['Realized Profit'] +
                                     filtered_data['Dividends'] +
                                     filtered_data['Unrealized Profit'])
-cagr = calculate_cagr(filtered_data['Portfolio Value'])
-st.write(f"**Portfolio CAGR:** {cagr:.2%}")
-filtered_data['Daily Return'] = filtered_data['Portfolio Value'].pct_change().fillna(0)
-var_95, cvar_95 = compute_var_cvar(filtered_data['Daily Return'], confidence=0.95)
-st.write(f"**95% VaR:** {var_95:.2%}")
-st.write(f"**95% CVaR:** {cvar_95:.2%}")
+# (Text metrics for Portfolio CAGR, VaR, CVaR have been removed.)
 
 # ===================== BENCHMARK RISK METRICS =====================
 BENCHMARK_TICKER = "^GSPC"
@@ -440,11 +431,26 @@ sharpe_ratio = ((portfolio_return_daily - risk_free_rate_daily) / filtered_data[
 portfolio_return_annual = (1 + portfolio_return_daily) ** 252 - 1
 benchmark_return_annual = (1 + benchmark_return_daily) ** 252 - 1
 alpha = (portfolio_return_annual - risk_free_rate_annual) - portfolio_beta * (benchmark_return_annual - risk_free_rate_annual)
-st.write("### Portfolio Risk Metrics")
-st.write(f"**Annualized Volatility (Std Dev):** {portfolio_volatility:.2%}")
-st.write(f"**Beta vs {BENCHMARK_TICKER}:** {portfolio_beta:.2f}")
-st.write(f"**Sharpe Ratio:** {sharpe_ratio:.2f}")
-st.write(f"**Alpha:** {alpha:.2%}")
+
+# ===================== RISK METRICS PLOT =====================
+# Instead of printing text, plot key risk metrics.
+risk_metrics = {
+    "Volatility": portfolio_volatility,
+    "Beta": portfolio_beta,
+    "Sharpe Ratio": sharpe_ratio,
+    "Alpha": alpha
+}
+# Create a bar chart for risk metrics
+fig, ax = plt.subplots(figsize=(8, 5))
+bars = ax.bar(list(risk_metrics.keys()), list(risk_metrics.values()), color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
+ax.set_title("Risk Metrics")
+ax.set_ylabel("Value")
+for bar in bars:
+    height = bar.get_height()
+    ax.annotate(f'{height:.2f}', xy=(bar.get_x() + bar.get_width()/2, height),
+                xytext=(0, 3), textcoords="offset points", ha='center', va='bottom')
+plt.tight_layout()
+st.pyplot(plt.gcf())
 
 # ===================== VISUALIZATIONS =====================
 # Stacked bar chart for portfolio components
@@ -563,19 +569,16 @@ ax.legend()
 plt.tight_layout()
 st.pyplot(plt.gcf())
 
-# Sector allocation pie chart
-# (Here we use the current invested capital per stock to compute allocation)
-allocation_by_sector, sector_df = None, None
+# Sector allocation pie chart (using current invested capital)
 try:
     current_cap_df = calculate_current_invested_capital_per_stock()
-    # For simplicity, we assign sector as 'Unknown' since no mapping is provided.
-    allocation_by_sector = current_cap_df.copy()
-    allocation_by_sector['Sector'] = 'Unknown'
-    allocation_by_sector = allocation_by_sector.groupby('Sector')['Invested Capital'].sum().reset_index()
+    allocation_df = current_cap_df.copy()
+    allocation_df['Sector'] = 'Unknown'
+    allocation_df = allocation_df.groupby('Sector')['Invested Capital'].sum().reset_index()
     st.write("### Sector Allocation")
-    st.dataframe(allocation_by_sector)
+    st.dataframe(allocation_df)
     fig, ax = plt.subplots(figsize=(8, 8))
-    ax.pie(allocation_by_sector['Invested Capital'], labels=allocation_by_sector['Sector'], autopct='%1.1f%%',
+    ax.pie(allocation_df['Invested Capital'], labels=allocation_df['Sector'], autopct='%1.1f%%',
            startangle=140)
     ax.set_title("Portfolio Allocation by Sector")
     plt.tight_layout()
@@ -584,22 +587,8 @@ except Exception as e:
     st.write("Sector allocation could not be computed:", e)
 
 # ===================== ADDITIONAL RISK METRICS VISUALIZATIONS =====================
-cagr_value = calculate_cagr(filtered_data['Portfolio Value'])
-running_max = filtered_data['Portfolio Value'].cummax()
-drawdown = filtered_data['Portfolio Value'] / running_max - 1
-max_drawdown = drawdown.min()
-annual_return = np.exp(filtered_data['Daily Return'].mean() * 252) - 1
-benchmark_return_annual = np.exp(filtered_data['Benchmark Return'].mean() * 252) - 1
-alpha_val = (portfolio_return_annual - risk_free_rate_annual) - portfolio_beta * (benchmark_return_annual - risk_free_rate_annual)
-sharpe_ratio_val = (portfolio_return_annual - risk_free_rate_annual) / portfolio_volatility
-st.write("### Additional Risk Metrics")
-st.write(f"**CAGR:** {cagr_value:.2%}")
-st.write(f"**Annual Return:** {annual_return:.2%}")
-st.write(f"**Annualized Volatility (Std Dev):** {portfolio_volatility:.2%}")
-st.write(f"**Max Drawdown:** {max_drawdown:.2%}")
-st.write(f"**Beta vs {BENCHMARK_TICKER}:** {portfolio_beta:.2f}")
-st.write(f"**Sharpe Ratio:** {sharpe_ratio_val:.2f}")
-st.write(f"**Alpha:** {alpha_val:.2%}")
+# Instead of textual outputs, we already display risk metrics in a plot above.
+# Additional plots for portfolio value vs. benchmark, drawdown, distribution, etc. follow.
 
 fig, ax = plt.subplots(figsize=(12,6))
 ax.plot(filtered_data.index, filtered_data['Portfolio Value'], label='Portfolio Value', linewidth=2)
