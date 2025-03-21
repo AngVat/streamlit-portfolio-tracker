@@ -105,23 +105,25 @@ if st.button("Export Logs to Excel"):
 
 # Import logs: Upload CSV files for trade log and dividend log.
 st.subheader("Import Logs")
-trade_file = st.file_uploader("Upload Trade Log CSV", type=["csv"], key="trade_import")
+trade_file = st.file_uploader("Upload Trade Log Excel", type=["xlsx"], key="trade_import")
 if trade_file is not None:
     try:
-        imported_trade_log = pd.read_csv(trade_file, parse_dates=['Date'])
+        imported_trade_log = pd.read_excel(trade_file, sheet_name="Trade Log", parse_dates=['Date'])
         st.session_state.trade_log = imported_trade_log
         st.success("Trade log imported successfully!")
     except Exception as e:
         st.error(f"Error importing trade log: {e}")
 
-dividend_file = st.file_uploader("Upload Dividend Log CSV", type=["csv"], key="dividend_import")
+
+dividend_file = st.file_uploader("Upload Dividend Log Excel", type=["xlsx"], key="dividend_import")
 if dividend_file is not None:
     try:
-        imported_dividend_log = pd.read_csv(dividend_file, parse_dates=['Date'])
+        imported_dividend_log = pd.read_excel(dividend_file, sheet_name="Dividend Log", parse_dates=['Date'])
         st.session_state.dividend_log = imported_dividend_log
         st.success("Dividend log imported successfully!")
     except Exception as e:
         st.error(f"Error importing dividend log: {e}")
+
 
 # ===================== DISPLAY LOGS =====================
 st.subheader("Trade Log")
