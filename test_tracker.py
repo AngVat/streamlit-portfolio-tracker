@@ -20,12 +20,12 @@ st.sidebar.title("Portfolio Analysis Configuration")
 separate_profits = st.sidebar.checkbox("Separate Realized & Unrealized Profits", value=True)
 include_capital = st.sidebar.checkbox("Include Invested Capital", value=False)
 currency_convert = st.sidebar.checkbox("Convert USD to EUR", value=True)
-days_back = st.sidebar.number_input("Days Back (for recent data)", min_value=100, max_value=1000, value=700, step=50)
+frequency = st.sidebar.selectbox("Time Series Frequency", options=["Daily", "Weekly", "Monthly", "Yearly"], index=0)
 cache_dur_hours = st.sidebar.number_input("Cache Duration (hours)", min_value=1, max_value=24, value=2, step=1)
 analysis_region = st.sidebar.selectbox("Analysis Region", options=["All", "US", "Greek"], index=0)
 
 st.sidebar.markdown("---")
-st.sidebar.write("This app downloads historical data, computes portfolio metrics and risk, and produces performance plots.")
+st.sidebar.write("This app downloads historical data, computes portfolio performance, and produces various plots.")
 
 # ===================== CURRENCY CONVERSION SETUP =====================
 if currency_convert:
@@ -137,15 +137,8 @@ else:
     earliest_date = datetime.now() - relativedelta(years=1)
 latest_date = datetime.now().date()
 
-# Create a date range using business month-ends and recent business days
-month_ends = pd.date_range(start=earliest_date, end=latest_date, freq='BM').normalize()
-date_list = list(month_ends)
-five_days_back = latest_date - timedelta(days=days_back)
-last_days = pd.date_range(start=five_days_back, end=latest_date, freq='B').normalize()
-for d in last_days:
-    if d not in date_list:
-        date_list.append(d)
-date_list = sorted(date_list)
+# Create a full daily date range
+date_list = pd.date_range(start=earliest_date, end=latest_date, freq='D')
 
 # Use user-entered tickers directly
 stocks = trade_log['Stock'].unique()
@@ -242,19 +235,6 @@ def calculate_individual_pnl():
         all_individual_pnls = pd.concat([all_individual_pnls, stock_individual_pnls], ignore_index=True)
     return all_individual_pnls.sort_values(by='Date')
 
-def calculate_pnl_percentage():
-    individual_pnls = calculate_individual_pnl()
-    total_pnl = individual_pnls.groupby('Stock').agg({'PnL': sum, 'Investment': sum})
-    total_pnl['PnL Percentage'] = (total_pnl['PnL'] / total_pnl['Investment']) * 100
-    return total_pnl.round(2)
-
-def calculate_total_pnl_and_percentage():
-    individual_pnls = calculate_individual_pnl()
-    total_pnl = individual_pnls['PnL'].sum()
-    total_investment = individual_pnls['Investment'].sum()
-    total_pnl_percentage = (total_pnl / total_investment) * 100 if total_investment != 0 else 0
-    return round(total_pnl, 2), round(total_investment, 2), round(total_pnl_percentage, 2)
-
 def calculate_dividend_profit():
     dividend_profit = dividend_log.copy()
     if currency_convert:
@@ -310,20 +290,6 @@ def calculate_current_invested_capital_per_stock():
     else:
         return df_invest
 
-def calculate_cagr(portfolio_values):
-    start_value = portfolio_values.iloc[0]
-    end_value = portfolio_values.iloc[-1]
-    num_years = (portfolio_values.index[-1] - portfolio_values.index[0]).days / 365.25
-    cagr = (end_value / start_value) ** (1 / num_years) - 1 if start_value > 0 and num_years > 0 else 0
-    return cagr
-
-def compute_var_cvar(daily_returns, confidence=0.95):
-    var_threshold = np.percentile(daily_returns, (1 - confidence) * 100)
-    var = abs(var_threshold)
-    cvar = abs(daily_returns[daily_returns <= var_threshold].mean())
-    return var, cvar
-
-# ===================== PORTFOLIO TIME SERIES ANALYSIS =====================
 def process_trades_and_dividends_up_to_date(date, trades, dividends):
     holdings = defaultdict(int)
     invested_cap = defaultdict(float)
@@ -407,87 +373,54 @@ filtered_data['Portfolio Value'] = (filtered_data['Invested Capital'] +
                                     filtered_data['Dividends'] +
                                     filtered_data['Unrealized Profit'])
 
-# Compute Daily Return if Portfolio Value exists
-if not filtered_data.empty and 'Portfolio Value' in filtered_data.columns:
-    filtered_data['Daily Return'] = filtered_data['Portfolio Value'].pct_change().fillna(0)
+# Resample time series based on the selected frequency
+filtered_data.index = pd.to_datetime(filtered_data.index)
+if frequency == "Weekly":
+    freq_data = filtered_data.resample('W').last()
+elif frequency == "Monthly":
+    freq_data = filtered_data.resample('M').last()
+elif frequency == "Yearly":
+    freq_data = filtered_data.resample('A').last()
 else:
-    filtered_data['Daily Return'] = 0
+    freq_data = filtered_data.copy()
 
-# ===================== BENCHMARK RISK METRICS =====================
+# ===================== BENCHMARK DATA =====================
 BENCHMARK_TICKER = "^GSPC"
 benchmark_data = yf.download(BENCHMARK_TICKER, start=start_date, end=end_date)['Close']
 if benchmark_data.empty:
     st.write(f"Warning: No benchmark data for {BENCHMARK_TICKER}.")
 else:
     benchmark_data = benchmark_data.sort_index().ffill()
-df_benchmark = benchmark_data.reindex(filtered_data.index, method='ffill').ffill().fillna(method='bfill')
-filtered_data['Benchmark'] = df_benchmark
-filtered_data['Benchmark Return'] = filtered_data['Benchmark'].pct_change().fillna(0)
-risk_free_rate_annual = 0.02
-risk_free_rate_daily = risk_free_rate_annual / 252
-
-if not filtered_data.empty:
-    portfolio_volatility = filtered_data['Daily Return'].std() * np.sqrt(252)
-    cov_matrix = np.cov(filtered_data['Daily Return'] - risk_free_rate_daily,
-                        filtered_data['Benchmark Return'] - risk_free_rate_daily)
-    cov_port_bench = cov_matrix[0, 1]
-    var_bench = np.var(filtered_data['Benchmark Return'] - risk_free_rate_daily)
-    portfolio_beta = cov_port_bench / var_bench if var_bench != 0 else 0
-    portfolio_return_daily = filtered_data['Daily Return'].mean()
-    benchmark_return_daily = filtered_data['Benchmark Return'].mean()
-    sharpe_ratio = ((portfolio_return_daily - risk_free_rate_daily) / filtered_data['Daily Return'].std()) * np.sqrt(252)
-    portfolio_return_annual = (1 + portfolio_return_daily) ** 252 - 1
-    benchmark_return_annual = (1 + benchmark_return_daily) ** 252 - 1
-    alpha = (portfolio_return_annual - risk_free_rate_annual) - portfolio_beta * (benchmark_return_annual - risk_free_rate_annual)
-else:
-    portfolio_volatility = portfolio_beta = sharpe_ratio = alpha = 0
-
-# ===================== RISK METRICS PLOT =====================
-risk_metrics = {
-    "Volatility": portfolio_volatility,
-    "Beta": portfolio_beta,
-    "Sharpe Ratio": sharpe_ratio,
-    "Alpha": alpha
-}
-fig, ax = plt.subplots(figsize=(8, 5))
-bars = ax.bar(list(risk_metrics.keys()), list(risk_metrics.values()),
-              color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
-ax.set_title("Risk Metrics")
-ax.set_ylabel("Value")
-for bar in bars:
-    height = bar.get_height()
-    ax.annotate(f'{height:.2f}', xy=(bar.get_x() + bar.get_width()/2, height),
-                xytext=(0, 3), textcoords="offset points", ha='center', va='bottom')
-plt.tight_layout()
-st.pyplot(plt.gcf())
-plt.clf()
+df_benchmark = benchmark_data.reindex(freq_data.index, method='ffill').ffill().fillna(method='bfill')
+freq_data['Benchmark'] = df_benchmark
+freq_data['Benchmark Return'] = freq_data['Benchmark'].pct_change().fillna(0)
 
 # ===================== VISUALIZATIONS =====================
 # Stacked bar chart for portfolio components
 if include_capital:
     if separate_profits:
-        stacked_data = filtered_data[['Invested Capital', 'Dividends', 'Realized Profit', 'Unrealized Profit']]
+        stacked_data = freq_data[['Invested Capital', 'Dividends', 'Realized Profit', 'Unrealized Profit']]
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
         title = 'Invested Capital, Realized & Unrealized Profit, and Dividends Over Time'
     else:
-        stacked_data = filtered_data[['Dividends', 'Total Profit', 'Invested Capital']]
+        stacked_data = freq_data[['Dividends', 'Total Profit', 'Invested Capital']]
         colors = ['#ff7f0e', '#2ca02c', '#1f77b4']
         title = 'Invested Capital, Total Profit, and Dividends Over Time'
 else:
     if separate_profits:
-        stacked_data = filtered_data[['Dividends', 'Realized Profit', 'Unrealized Profit']]
+        stacked_data = freq_data[['Dividends', 'Realized Profit', 'Unrealized Profit']]
         colors = ['#ff7f0e', '#2ca02c', '#d62728']
         title = 'Realized & Unrealized Profit and Dividends Over Time'
     else:
-        stacked_data = filtered_data[['Dividends', 'Total Profit']]
+        stacked_data = freq_data[['Dividends', 'Total Profit']]
         colors = ['#ff7f0e', '#2ca02c']
         title = 'Total Profit and Dividends Over Time'
 
-ax = stacked_data.plot(kind='bar', stacked=True, color=colors, figsize=(12, 6))
+fig, ax = plt.subplots(figsize=(12, 6))
+stacked_data.plot(kind='bar', stacked=True, color=colors, ax=ax)
 plt.title(title)
 plt.xlabel('Date')
 plt.ylabel('Amount (€)')
-# Use date locator for x-axis (since index contains dates)
 ax.xaxis.set_major_locator(mdates.AutoDateLocator())
 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
 plt.xticks(rotation=45, ha='right')
@@ -603,26 +536,26 @@ try:
 except Exception as e:
     st.write("Sector allocation could not be computed:", e)
 
-# ===================== ADDITIONAL RISK METRICS VISUALIZATIONS =====================
+# Portfolio Value vs. Benchmark
 fig, ax = plt.subplots(figsize=(12,6))
-ax.plot(filtered_data.index, filtered_data['Portfolio Value'], label='Portfolio Value', linewidth=2)
-ax.plot(filtered_data.index, filtered_data['Benchmark'], label='Benchmark', linewidth=2, linestyle='--')
+ax.plot(freq_data.index, freq_data['Portfolio Value'], label='Portfolio Value', linewidth=2)
+ax.plot(freq_data.index, freq_data['Benchmark'], label='Benchmark', linewidth=2, linestyle='--')
 ax.set_xlabel('Date')
 ax.set_ylabel('Value (€)')
 ax.set_title('Portfolio Value vs. Benchmark')
 ax.legend()
 ax.grid(True)
-# Use date locator for x-axis
 ax.xaxis.set_major_locator(mdates.AutoDateLocator())
 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
 plt.tight_layout()
 st.pyplot(plt.gcf())
 plt.clf()
 
-running_max = filtered_data['Portfolio Value'].cummax()
-drawdown = filtered_data['Portfolio Value'] / running_max - 1
+# Portfolio Drawdown Over Time
+running_max = freq_data['Portfolio Value'].cummax()
+drawdown = freq_data['Portfolio Value'] / running_max - 1
 fig, ax = plt.subplots(figsize=(12,6))
-ax.plot(filtered_data.index, drawdown, color='red', label='Drawdown')
+ax.plot(freq_data.index, drawdown, color='red', label='Drawdown')
 ax.set_xlabel('Date')
 ax.set_ylabel('Drawdown (%)')
 ax.set_title('Portfolio Drawdown Over Time')
@@ -634,8 +567,9 @@ plt.tight_layout()
 st.pyplot(plt.gcf())
 plt.clf()
 
+# Distribution of Daily Returns
 fig, ax = plt.subplots(figsize=(12,6))
-ax.hist(filtered_data['Daily Return'], bins=50, edgecolor='black', alpha=0.7)
+ax.hist(freq_data['Daily Return'], bins=50, edgecolor='black', alpha=0.7)
 ax.set_xlabel('Daily Return')
 ax.set_ylabel('Frequency')
 ax.set_title('Distribution of Daily Returns')
@@ -644,8 +578,9 @@ plt.tight_layout()
 st.pyplot(plt.gcf())
 plt.clf()
 
+# Portfolio vs. Benchmark Daily Returns (Scatter Plot)
 fig, ax = plt.subplots(figsize=(12,6))
-ax.scatter(filtered_data['Benchmark Return'], filtered_data['Daily Return'], alpha=0.6, color='purple')
+ax.scatter(freq_data['Benchmark Return'], freq_data['Daily Return'], alpha=0.6, color='purple')
 ax.set_xlabel('Benchmark Daily Return')
 ax.set_ylabel('Portfolio Daily Return')
 ax.set_title('Portfolio vs. Benchmark Daily Returns')
@@ -654,16 +589,24 @@ plt.tight_layout()
 st.pyplot(plt.gcf())
 plt.clf()
 
-log_portfolio_returns = np.log(filtered_data['Portfolio Value'] / filtered_data['Portfolio Value'].iloc[0])
-log_benchmark_returns = np.log(filtered_data['Benchmark'] / filtered_data['Benchmark'].iloc[0])
+# Cumulative Returns: Portfolio vs. Benchmark
+log_portfolio_returns = np.log(freq_data['Portfolio Value'] / freq_data['Portfolio Value'].iloc[0])
+log_benchmark_returns = np.log(freq_data['Benchmark'] / freq_data['Benchmark'].iloc[0])
 cum_portfolio_return = np.exp(log_portfolio_returns) - 1
 cum_benchmark_return = np.exp(log_benchmark_returns) - 1
 fig, ax = plt.subplots(figsize=(12,6))
-ax.plot(filtered_data.index, cum_portfolio_return, label='Portfolio Cumulative Return', linewidth=2)
-ax.plot(filtered_data.index, cum_benchmark_return, label='Benchmark Cumulative Return', linewidth=2, linestyle='--')
+ax.plot(freq_data.index, cum_portfolio_return, label='Portfolio Cumulative Return', linewidth=2)
+ax.plot(freq_data.index, cum_benchmark_return, label='Benchmark Cumulative Return', linewidth=2, linestyle='--')
 ax.set_xlabel('Date')
 ax.set_ylabel('Cumulative Return')
 ax.set_title('Cumulative Returns: Portfolio vs. Benchmark')
 ax.legend()
 ax.grid(True)
-ax.xaxis.set_ma
+ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+plt.tight_layout()
+st.pyplot(plt.gcf())
+plt.clf()
+
+st.write("### End of Analysis")
+st.write("NEW SECTION")
