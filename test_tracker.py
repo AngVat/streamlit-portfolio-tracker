@@ -13,8 +13,6 @@ from collections import defaultdict
 import streamlit as st
 
 warnings.filterwarnings('ignore')
-st.cache_data.clear()
-st.cache_resource.clear()
 
 # ===================== SIDEBAR CONFIGURATION =====================
 st.sidebar.title("Portfolio Analysis Configuration")
