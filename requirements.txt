@@ -5,3 +5,4 @@ matplotlib>=3.8.0
 yfinance>=0.2.35
 python-dateutil>=2.8.2
 scikit-learn>=1.4.0
+openpyxl
