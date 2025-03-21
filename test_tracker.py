@@ -19,16 +19,14 @@ st.sidebar.title("Portfolio Analysis Configuration")
 separate_profits = st.sidebar.checkbox("Separate Realized & Unrealized Profits", value=True)
 include_capital = st.sidebar.checkbox("Include Invested Capital", value=False)
 currency_convert = st.sidebar.checkbox("Convert USD to EUR", value=True)
-frequency = st.sidebar.selectbox("Time Series Frequency", options=["Daily", "Weekly", "Monthly", "Yearly"], index=0)
-cache_dur_hours = st.sidebar.number_input("Cache Duration (hours)", min_value=1, max_value=24, value=2, step=1)
-analysis_region = st.sidebar.selectbox("Analysis Region", options=["All", "US", "Greek"], index=0)
-
-# ✅ New Frequency Option (daily/weekly/monthly/yearly)
+# New Time Series Frequency option replaces the old Days Back input
 time_series_frequency = st.sidebar.selectbox(
     "Time Series Frequency",
     options=["Daily", "Weekly", "Monthly", "Yearly"],
     index=0
 )
+cache_dur_hours = st.sidebar.number_input("Cache Duration (hours)", min_value=1, max_value=24, value=2, step=1)
+analysis_region = st.sidebar.selectbox("Analysis Region", options=["All", "US", "Greek"], index=0)
 
 st.sidebar.markdown("---")
 st.sidebar.write("This app downloads historical data, computes portfolio performance, and produces various plots.")
@@ -332,6 +330,7 @@ def process_trades_and_dividends_up_to_date(date, trades, dividends):
                     invested_cap[stock] = 0.0
     return holdings, invested_cap, cumulative_realized, cumulative_div
 
+# Build time series of portfolio performance
 dates, invested_caps, realized_profits, unrealized_profits, total_profits, dividends_list, pnl_results = [], [], [], [], [], [], []
 for date in date_list:
     holdings, invested_cap, cum_realized, cum_div = process_trades_and_dividends_up_to_date(date, trade_log, dividend_log)
@@ -381,12 +380,12 @@ filtered_data['Portfolio Value'] = (filtered_data['Invested Capital'] +
 filtered_data.index = pd.to_datetime(filtered_data.index)
 filtered_data['Daily Return'] = filtered_data['Portfolio Value'].pct_change().fillna(0)
 
-# Resample time series based on the selected frequency
-if frequency == "Weekly":
+# Resample the time series based on the selected frequency
+if time_series_frequency == "Weekly":
     freq_data = filtered_data.resample('W').last()
-elif frequency == "Monthly":
+elif time_series_frequency == "Monthly":
     freq_data = filtered_data.resample('M').last()
-elif frequency == "Yearly":
+elif time_series_frequency == "Yearly":
     freq_data = filtered_data.resample('A').last()
 else:
     freq_data = filtered_data.copy()
