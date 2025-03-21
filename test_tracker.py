@@ -1,5 +1,6 @@
 import os
 import io
+import pickle
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
@@ -85,32 +86,44 @@ def log_dividend(date, stock, dividend_received):
     }])
     st.session_state.dividend_log = pd.concat([st.session_state.dividend_log, dividend], ignore_index=True)
 
-# ===================== USER INPUT FOR LOGS =====================
-st.header("Add Your Trade / Dividend Logs")
+# ===================== EXPORT / IMPORT LOGS =====================
+st.header("Export / Import Logs")
 
-with st.expander("Add Trade Log"):
-    with st.form("trade_form", clear_on_submit=True):
-        t_date = st.date_input("Trade Date", datetime.today())
-        t_stock = st.text_input("Stock Ticker", "AAPL")
-        t_action = st.selectbox("Action", ["Buy", "Sell"])
-        t_quantity = st.number_input("Quantity", min_value=1, step=1, value=1)
-        t_price = st.number_input("Price per Share", min_value=0.0, value=0.0, format="%.2f")
-        t_expenses = st.number_input("Expenses", min_value=0.0, value=0.0, format="%.2f")
-        submitted_trade = st.form_submit_button("Add Trade")
-        if submitted_trade:
-            log_trade(t_date, t_stock, t_action, t_quantity, t_price, t_expenses)
-            st.success("Trade added!")
+# Export logs: Combine trade and dividend logs into an Excel file with two sheets.
+if st.button("Export Logs to Excel"):
+    towrite = io.BytesIO()
+    with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
+        st.session_state.trade_log.to_excel(writer, index=False, sheet_name="Trade Log")
+        st.session_state.dividend_log.to_excel(writer, index=False, sheet_name="Dividend Log")
+    towrite.seek(0)
+    st.download_button(
+        label="Download Logs as Excel",
+        data=towrite,
+        file_name="portfolio_logs.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-with st.expander("Add Dividend Log"):
-    with st.form("dividend_form", clear_on_submit=True):
-        d_date = st.date_input("Dividend Date", datetime.today())
-        d_stock = st.text_input("Stock Ticker for Dividend", "AAPL")
-        d_amount = st.number_input("Dividend Received", min_value=0.0, value=0.0, format="%.2f")
-        submitted_div = st.form_submit_button("Add Dividend")
-        if submitted_div:
-            log_dividend(d_date, d_stock, d_amount)
-            st.success("Dividend added!")
+# Import logs: Upload CSV files for trade log and dividend log.
+st.subheader("Import Logs")
+trade_file = st.file_uploader("Upload Trade Log CSV", type=["csv"], key="trade_import")
+if trade_file is not None:
+    try:
+        imported_trade_log = pd.read_csv(trade_file, parse_dates=['Date'])
+        st.session_state.trade_log = imported_trade_log
+        st.success("Trade log imported successfully!")
+    except Exception as e:
+        st.error(f"Error importing trade log: {e}")
 
+dividend_file = st.file_uploader("Upload Dividend Log CSV", type=["csv"], key="dividend_import")
+if dividend_file is not None:
+    try:
+        imported_dividend_log = pd.read_csv(dividend_file, parse_dates=['Date'])
+        st.session_state.dividend_log = imported_dividend_log
+        st.success("Dividend log imported successfully!")
+    except Exception as e:
+        st.error(f"Error importing dividend log: {e}")
+
+# ===================== DISPLAY LOGS =====================
 st.subheader("Trade Log")
 st.dataframe(st.session_state.trade_log.sort_values("Date"))
 st.subheader("Dividend Log")
@@ -352,13 +365,13 @@ filtered_data = df[df.index >= pd.to_datetime("2023-01-01").date()]
 st.write("### Time Series Data (from 2023-01-01)")
 st.dataframe(filtered_data)
 
-# Add an export button to download the dataframe as Excel
-towrite = io.BytesIO()
-filtered_data.to_excel(towrite, index=True, sheet_name="Portfolio Data")
-towrite.seek(0)
+# Add option to export the final time series data
+to_write = io.BytesIO()
+filtered_data.to_excel(to_write, index=True, sheet_name="Portfolio Data")
+to_write.seek(0)
 st.download_button(
-    label="Download Data as Excel",
-    data=towrite,
+    label="Download Time Series Data as Excel",
+    data=to_write,
     file_name="portfolio_data.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
@@ -370,7 +383,7 @@ filtered_data['Portfolio Value'] = (filtered_data['Invested Capital'] +
 filtered_data.index = pd.to_datetime(filtered_data.index)
 filtered_data['Daily Return'] = filtered_data['Portfolio Value'].pct_change().fillna(0)
 
-# Resample the time series based on the selected frequency
+# Resample time series based on the selected frequency
 if time_series_frequency == "Weekly":
     freq_data = filtered_data.resample('W').last()
 elif time_series_frequency == "Monthly":
