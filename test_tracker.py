@@ -3,6 +3,7 @@ import pickle
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import numpy as np
 import time
 import warnings
@@ -39,7 +40,7 @@ if currency_convert:
 else:
     conversion_factor = 1.0
 
-# ===================== HELPER FUNCTIONS FOR CURRENCY CONVERSION =====================
+# ===================== HELPER FUNCTIONS =====================
 def is_us_stock(stock):
     """Heuristic: if ticker does not end with '.AT', consider it US-based."""
     return not stock.endswith('.AT')
@@ -158,7 +159,6 @@ price_data = pd.DataFrame()
 
 st.write("### Downloading Historical Price Data...")
 for ticker in tickers:
-    # -------------------- CACHING FUNCTION --------------------
     def download_data_with_retry(ticker, start_date, end_date, cache_duration_hours=cache_dur_hours, retries=3, delay=5):
         cache_dir = "cache"
         if not os.path.exists(cache_dir):
@@ -194,7 +194,6 @@ for ticker in tickers:
                 st.write(f"Attempt {i + 1}: Failed to download data for {ticker}: {e}")
                 time.sleep(delay)
         return None
-    # -----------------------------------------------------------
     data = download_data_with_retry(ticker, start_date, end_date)
     if data is not None:
         price_data[ticker] = data
@@ -427,7 +426,6 @@ filtered_data['Benchmark Return'] = filtered_data['Benchmark'].pct_change().fill
 risk_free_rate_annual = 0.02
 risk_free_rate_daily = risk_free_rate_annual / 252
 
-# Only compute these metrics if Daily Return exists and is non-empty
 if not filtered_data.empty:
     portfolio_volatility = filtered_data['Daily Return'].std() * np.sqrt(252)
     cov_matrix = np.cov(filtered_data['Daily Return'] - risk_free_rate_daily,
@@ -489,7 +487,9 @@ ax = stacked_data.plot(kind='bar', stacked=True, color=colors, figsize=(12, 6))
 plt.title(title)
 plt.xlabel('Date')
 plt.ylabel('Amount (€)')
-#ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=10))
+# Use date locator for x-axis (since index contains dates)
+ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
 plt.xticks(rotation=45, ha='right')
 plt.legend(title='Components')
 plt.tight_layout()
@@ -612,6 +612,9 @@ ax.set_ylabel('Value (€)')
 ax.set_title('Portfolio Value vs. Benchmark')
 ax.legend()
 ax.grid(True)
+# Use date locator for x-axis
+ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
 plt.tight_layout()
 st.pyplot(plt.gcf())
 plt.clf()
@@ -625,6 +628,8 @@ ax.set_ylabel('Drawdown (%)')
 ax.set_title('Portfolio Drawdown Over Time')
 ax.legend()
 ax.grid(True)
+ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
 plt.tight_layout()
 st.pyplot(plt.gcf())
 plt.clf()
@@ -661,9 +666,4 @@ ax.set_ylabel('Cumulative Return')
 ax.set_title('Cumulative Returns: Portfolio vs. Benchmark')
 ax.legend()
 ax.grid(True)
-plt.tight_layout()
-st.pyplot(plt.gcf())
-plt.clf()
-
-st.write("### End of Analysis")
-st.write("NEW SECTION")
+ax.xaxis.set_ma
