@@ -23,6 +23,13 @@ frequency = st.sidebar.selectbox("Time Series Frequency", options=["Daily", "Wee
 cache_dur_hours = st.sidebar.number_input("Cache Duration (hours)", min_value=1, max_value=24, value=2, step=1)
 analysis_region = st.sidebar.selectbox("Analysis Region", options=["All", "US", "Greek"], index=0)
 
+# ✅ New Frequency Option (daily/weekly/monthly/yearly)
+time_series_frequency = st.sidebar.selectbox(
+    "Time Series Frequency",
+    options=["Daily", "Weekly", "Monthly", "Yearly"],
+    index=0
+)
+
 st.sidebar.markdown("---")
 st.sidebar.write("This app downloads historical data, computes portfolio performance, and produces various plots.")
 
